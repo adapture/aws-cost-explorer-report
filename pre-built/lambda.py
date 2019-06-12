@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this
 # software and associated documentation files (the "Software"), to deal in the Software
 # without restriction, including without limitation the rights to use, copy, modify,
 # merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
 # permit persons to whom the Software is furnished to do so.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
 # PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
@@ -53,7 +53,7 @@ if not SES_REGION:
 ACCOUNT_LABEL = os.environ.get('ACCOUNT_LABEL')
 if not ACCOUNT_LABEL:
     ACCOUNT_LABEL = 'Email'
-    
+
 CURRENT_MONTH = os.environ.get('CURRENT_MONTH')
 if CURRENT_MONTH == "true":
     CURRENT_MONTH = True
@@ -65,7 +65,7 @@ class CostExplorer:
     >>> costexplorer = CostExplorer()
     >>> costexplorer.addReport(GroupBy=[{"Type": "DIMENSION","Key": "SERVICE"}])
     >>> costexplorer.generateExcel()
-    """    
+    """
     def __init__(self, ACCESS_KEY=None, SECRET_KEY=None, SESSION_TOKEN=None, CurrentMonth=False):
         #Array of reports ready to be output to Excel.
         self.reports = []
@@ -81,7 +81,7 @@ class CostExplorer:
         except:
             logging.exception("Getting Account names failed")
             self.accounts = {}
-        
+
     def getAccounts(self, ACCESS_KEY=None, SECRET_KEY=None, SESSION_TOKEN=None):
         accounts = {}
         client = boto3.client('organizations', aws_access_key_id=ACCESS_KEY, aws_secret_access_key=SECRET_KEY, aws_session_token=SESSION_TOKEN, region_name='us-east-1')
@@ -91,7 +91,7 @@ class CostExplorer:
             for acc in response['Accounts']:
                 accounts[acc['Id']] = acc
         return accounts
-    
+
     def addRiReport(self, Name="RICoverage"):
 
         results = []
@@ -118,21 +118,21 @@ class CostExplorer:
                 nextToken = response['nextToken']
             else:
                 nextToken = False
-        
+
         rows = []
         for v in response['CoveragesByTime']:
             row = {'date':v['TimePeriod']['Start']}
             row.update({'Coverage%':float(v['Total']['CoverageHours']['CoverageHoursPercentage'])})
-            rows.append(row)  
-                
+            rows.append(row)
+
         df = pd.DataFrame(rows)#index=[i['date'] for i in rows]
         df.set_index("date", inplace= True)
         df = df.fillna(0.0)
         df = df.T
         self.reports.append({'Name':Name,'Data':df})
-            
-        
-    def addReport(self, Name="Default",GroupBy=[{"Type": "DIMENSION","Key": "SERVICE"},], 
+
+
+    def addReport(self, Name="Default",GroupBy=[{"Type": "DIMENSION","Key": "SERVICE"},],
     Style='Total', NoCredits=True, CreditsOnly=False, UpfrontOnly=False):
         results = []
         if not NoCredits:
@@ -168,7 +168,7 @@ class CostExplorer:
 
         if response:
             results.extend(response['ResultsByTime'])
-            
+
             while 'nextToken' in response:
                 nextToken = response['nextToken']
                 response = self.client.get_cost_and_usage(
@@ -197,15 +197,15 @@ class CostExplorer:
                 key = i['Keys'][0]
                 if key in self.accounts:
                     key = self.accounts[key][ACCOUNT_LABEL]
-                row.update({key:float(i['Metrics']['UnblendedCost']['Amount'])}) 
+                row.update({key:float(i['Metrics']['UnblendedCost']['Amount'])})
             if not v['Groups']:
                 row.update({'Total':float(v['Total']['UnblendedCost']['Amount'])})
-            rows.append(row)  
+            rows.append(row)
 
         df = pd.DataFrame(rows)#index=[i['date'] for i in rows]
         df.set_index("date", inplace= True)
         df = df.fillna(0.0)
-        
+
         if Style == 'Change':
             dfc = df.copy()
             lastindex = None
@@ -218,11 +218,11 @@ class CostExplorer:
                             logging.exception("Error")
                             df.at[index,i] = 0
                 lastindex = index
-        df = df.T    
-        
+        df = df.T
+
         self.reports.append({'Name':Name,'Data':df})
-        
-        
+
+
     def generateExcel(self):
         # Create a Pandas Excel writer using XlsxWriter as the engine.\
         os.chdir('/tmp')
@@ -231,11 +231,11 @@ class CostExplorer:
         for report in self.reports:
             report['Data'].to_excel(writer, sheet_name=report['Name'])
             worksheet = writer.sheets[report['Name']]
-            
-            
+
+
             # Create a chart object.
             chart = workbook.add_chart({'type': 'column', 'subtype': 'stacked'})
-            
+
             chartend=12
             if CURRENT_MONTH:
                 chartend=13
@@ -245,21 +245,21 @@ class CostExplorer:
                     'categories': [report['Name'], 0, 1, 0, chartend],
                     'values':     [report['Name'], row_num, 1, row_num, chartend],
                 })
-            
+
             worksheet.insert_chart('O2', chart)
         writer.save()
-        
+
         #Time to deliver the file to S3
         if os.environ.get('S3_BUCKET'):
             s3 = boto3.client('s3')
-            s3.upload_file("cost_explorer_report.xlsx", os.environ.get('S3_BUCKET'), "cost_explorer_report.xlsx")
+            s3.upload_file("cost_explorer_report.xlsx", os.environ.get('S3_BUCKET') + customerName + '/', "cost_explorer_report.xlsx")
         if os.environ.get('SES_SEND'):
             #Email logic
             msg = MIMEMultipart()
             msg['From'] = os.environ.get('SES_FROM')
             msg['To'] = COMMASPACE.join(os.environ.get('SES_SEND').split(","))
             msg['Date'] = formatdate(localtime=True)
-            msg['Subject'] = "Cost Explorer Report"
+            msg['Subject'] = customerName + "Cost Explorer Report"
             text = "Find your Cost Explorer report attached\n\n"
             msg.attach(MIMEText(text))
             with open("cost_explorer_report.xlsx", "rb") as fil:
@@ -275,7 +275,7 @@ class CostExplorer:
                 Source=msg['From'],
                 Destinations=os.environ.get('SES_SEND').split(","),
                 RawMessage={'Data': msg.as_string()}
-            )     
+            )
 
 
 def main_handler(event, context=None):
@@ -284,14 +284,19 @@ def main_handler(event, context=None):
     # -----------------------------------------------------------------------
     stsclient = boto3.client('sts')
     rolearn = event['ARN']
+    roleExternalId = event['externalId']
     awsaccount = stsclient.assume_role(
         RoleArn=rolearn,
+        ExternalId=roleExternalId,
         RoleSessionName='awsaccount_session'
     )
     ACCESS_KEY = awsaccount['Credentials']['AccessKeyId']
     SECRET_KEY = awsaccount['Credentials']['SecretAccessKey']
     SESSION_TOKEN = awsaccount['Credentials']['SessionToken']
     # ------------------------------------------------------------------------
+    # get friendly name of customer
+    # ------------------------------------------------------------------------
+    customerName = event['customerName']
     costexplorer = CostExplorer(ACCESS_KEY=ACCESS_KEY, SECRET_KEY=SECRET_KEY, SESSION_TOKEN=SESSION_TOKEN, CurrentMonth=False)
     #Default addReport has filter to remove Credits / Refunds / UpfrontRI
     costexplorer.addReport(Name="Total", GroupBy=[],Style='Total')
