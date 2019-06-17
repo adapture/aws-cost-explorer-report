@@ -93,7 +93,6 @@ class CostExplorer:
         return accounts
 
     def addRiReport(self, Name="RICoverage"):
-
         results = []
         response = self.client.get_reservation_coverage(
             TimePeriod={
